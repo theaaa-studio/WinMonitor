@@ -351,17 +351,7 @@ def on_exit_from_gui():
 
 
 if __name__ == '__main__':
-    if '--test' in sys.argv:
-        print('Running monitor self-test: generating debug icon')
-        img = make_gauge_icon(81, '25K', '2.7M', size=(128, 128))
-        if img is None:
-            sys.exit(1)
-        try:
-            img.save(r'c:\Tools\winmonitor_debug.png')
-            print(r'Wrote c:\Tools\winmonitor_debug.png')
-            sys.exit(0)
-        except Exception:
-            sys.exit(2)
+
             
     root = tk.Tk()
     root.overrideredirect(True)
