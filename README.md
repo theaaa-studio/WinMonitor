@@ -17,18 +17,24 @@ A lightweight, elegant, and non-intrusive hardware system monitor for Windows. I
 - **Lightweight**: Minimal CPU and RAM footprint.
 
 ## Requirements
-Ensure you have the following installed:
-- Python 3.10+
-- `psutil`
-- `pillow`
-- `pystray`
-- `pynvml` (for NVIDIA GPU tracking)
-- `wmi` (for CPU/GPU temperature tracking via LibreHardwareMonitor)
+Ensure you have Python 3.10+ installed.
 
-To install dependencies:
+### Core Dependencies (Required)
+Required for basic system monitoring (CPU, RAM, Disks, Network):
+```bash
+pip install psutil pillow pystray
+```
+
+### Optional Dependencies
+Only required for specific tracking features:
+- **`pynvml`** (For NVIDIA GPU utilization tracking)
+- **`wmi`** (For CPU/GPU temperature tracking via LibreHardwareMonitor)
+
+To install all dependencies (core + optional):
 ```bash
 pip install psutil pillow pystray pynvml wmi
 ```
+*(If optional packages are missing or hardware is unsupported, WinMonitor will automatically and gracefully hide those modules while remaining fully functional).*
 
 ## Running the Application
 You can run WinMonitor in two ways:
