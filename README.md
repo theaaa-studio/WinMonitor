@@ -5,7 +5,10 @@ A lightweight, elegant, and non-intrusive hardware system monitor for Windows. I
 ![WinMonitor Preview](preview.png)
 
 ## Features
-- **Real-Time Data**: Dynamic text display showing CPU%, RAM%, GPU% (if available), and network speeds (Upload/Download).
+- **Real-Time Data**: Dynamic text display showing CPU%, RAM%, GPU% (if available), network speeds (Upload/Download), and per-drive disk performance active times.
+- **Disk Performance**: Real-time read (↑) and write (↓) performance percentages for each physical drive (e.g. `C: ↑ 0% ↓ 5%`) utilizing Windows performance counters.
+- **Customizable Module Visibility**: Choose what information you want to see. Toggle individual modules (CPU, RAM, Disk, GPU, Network) on/off directly from the right-click menu or system tray menu.
+- **Configuration Persistence**: Your customized visibility settings are automatically saved locally to `winmonitor_config.json` and persist across application runs.
 - **Temperatures**: Displays CPU package and GPU core temperatures (via LibreHardwareMonitor).
 - **Draggable**: Drag with your left mouse button to position it anywhere on your screen.
 - **Auto-Sizing**: Automatically shrinks or grows to fit the active text perfectly.

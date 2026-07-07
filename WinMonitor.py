@@ -5,6 +5,7 @@ import tkinter as tk
 import sys
 import winreg
 import os
+import json
 
 try:
     import pynvml
@@ -21,6 +22,12 @@ try:
 except Exception:
     HAS_WMI = False
 
+try:
+    import win32pdh
+    HAS_PDH = True
+except Exception:
+    HAS_PDH = False
+
 UPDATE_MS = 2000  # update interval
 
 state = {
@@ -31,8 +38,60 @@ state = {
     'gpu_temp': None,
     'net_up': 0.0,
     'net_down': 0.0,
+    'disks': [],
+    'show_cpu': True,
+    'show_ram': True,
+    'show_gpu': True,
+    'show_disk': True,
+    'show_network': True,
     'running': True
 }
+
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)), "winmonitor_config.json")
+
+def load_config():
+    try:
+        path = CONFIG_FILE
+        if not os.path.exists(path):
+            path = os.path.join(os.path.expanduser("~"), "winmonitor_config.json")
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                data = json.load(f)
+                state['show_cpu'] = data.get('show_cpu', True)
+                state['show_ram'] = data.get('show_ram', True)
+                state['show_gpu'] = data.get('show_gpu', True)
+                state['show_disk'] = data.get('show_disk', True)
+                state['show_network'] = data.get('show_network', True)
+    except Exception as e:
+        print("Failed to load config:", e)
+
+def save_config():
+    try:
+        data = {
+            'show_cpu': state['show_cpu'],
+            'show_ram': state['show_ram'],
+            'show_gpu': state['show_gpu'],
+            'show_disk': state['show_disk'],
+            'show_network': state['show_network']
+        }
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(data, f, indent=4)
+        except PermissionError:
+            user_config = os.path.join(os.path.expanduser("~"), "winmonitor_config.json")
+            with open(user_config, 'w') as f:
+                json.dump(data, f, indent=4)
+    except Exception as e:
+        print("Failed to save config:", e)
+
+def toggle_module(module):
+    key = f"show_{module}"
+    state[key] = not state[key]
+    save_config()
+    if root and canvas:
+        root.after(0, lambda: draw_bar(canvas))
+
+load_config()
 
 icon = None
 root = None
@@ -178,26 +237,52 @@ def draw_bar(canvas):
         return f"{kb_s:.0f} KB/s"
         
     parts = []
-    parts.append(("CPU ", "#888888"))
-    cpu_val = f"{cpu:.0f}%"
-    if cpu_temp:
-        cpu_val += f" ({cpu_temp:.0f}°C)"
-    parts.append((cpu_val, "#00e1ff"))
     
-    parts.append(("  |  RAM ", "#888888"))
-    parts.append((f"{ram:.0f}%", "#ffea00"))
-    
-    if HAS_GPU and gpu is not None:
-        parts.append(("  |  GPU ", "#888888"))
+    def add_divider():
+        if parts:
+            parts.append(("  |  ", "#888888"))
+            
+    if state.get('show_cpu', True):
+        parts.append(("CPU ", "#888888"))
+        cpu_val = f"{cpu:.0f}%"
+        if cpu_temp:
+            cpu_val += f" ({cpu_temp:.0f}°C)"
+        parts.append((cpu_val, "#00e1ff"))
+        
+    if state.get('show_ram', True):
+        add_divider()
+        parts.append(("RAM ", "#888888"))
+        parts.append((f"{ram:.0f}%", "#ffea00"))
+        
+    if state.get('show_disk', True):
+        disks = state.get('disks', [])
+        for i, disk in enumerate(disks):
+            if i == 0:
+                add_divider()
+            else:
+                parts.append(("   ", "#888888"))
+            parts.append((f"{disk['label']}: ↑ ", "#888888"))
+            parts.append((f"{disk['read']:.0f}%", "#00ff88"))
+            parts.append((" ↓ ", "#888888"))
+            parts.append((f"{disk['write']:.0f}%", "#00ff88"))
+            
+    if state.get('show_gpu', True) and HAS_GPU and gpu is not None:
+        add_divider()
+        parts.append(("GPU ", "#888888"))
         gpu_val = f"{gpu:.0f}%"
         if gpu_temp:
             gpu_val += f" ({gpu_temp:.0f}°C)"
         parts.append((gpu_val, "#ff007f"))
         
-    parts.append(("  |  ↑ ", "#888888"))
-    parts.append((f"{fmt_speed(up)}", "#ff7700"))
-    parts.append(("  ↓ ", "#888888"))
-    parts.append((f"{fmt_speed(down)}", "#00a2ff"))
+    if state.get('show_network', True):
+        add_divider()
+        parts.append(("↑ ", "#888888"))
+        parts.append((f"{fmt_speed(up)}", "#ff7700"))
+        parts.append(("  ↓ ", "#888888"))
+        parts.append((f"{fmt_speed(down)}", "#00a2ff"))
+        
+    if not parts:
+        parts.append(("WinMonitor (All hidden)", "#888888"))
     
     global right_edge_anchor, bar_y
     x = 5
@@ -237,6 +322,30 @@ def update_loop():
     last_net = psutil.net_io_counters()
     last_time = time.time()
     
+    pdh_query = None
+    disk_counters = {}
+    if HAS_PDH:
+        try:
+            pdh_query = win32pdh.OpenQuery()
+            _, instances = win32pdh.EnumObjectItems(None, None, 'PhysicalDisk', win32pdh.PERF_DETAIL_WIZARD)
+            for inst in instances:
+                if inst == '_Total':
+                    continue
+                import re
+                letters = re.findall(r'([A-Za-z]):', inst)
+                label = "/".join(letters) if letters else inst
+                r_counter = win32pdh.AddEnglishCounter(pdh_query, rf'\PhysicalDisk({inst})\% Disk Read Time')
+                w_counter = win32pdh.AddEnglishCounter(pdh_query, rf'\PhysicalDisk({inst})\% Disk Write Time')
+                disk_counters[inst] = {
+                    'label': label,
+                    'read_counter': r_counter,
+                    'write_counter': w_counter
+                }
+            win32pdh.CollectQueryData(pdh_query)
+        except Exception as e:
+            print("Failed to initialize win32pdh disk counters:", e)
+            pdh_query = None
+            
     while state['running']:
         cpu = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory().percent
@@ -266,6 +375,22 @@ def update_loop():
         state['net_up'] = up
         state['net_down'] = down
         
+        disks_data = []
+        if pdh_query:
+            try:
+                win32pdh.CollectQueryData(pdh_query)
+                for inst, counters in disk_counters.items():
+                    _, val_read = win32pdh.GetFormattedCounterValue(counters['read_counter'], win32pdh.PDH_FMT_DOUBLE)
+                    _, val_write = win32pdh.GetFormattedCounterValue(counters['write_counter'], win32pdh.PDH_FMT_DOUBLE)
+                    disks_data.append({
+                        'label': counters['label'],
+                        'read': max(0.0, min(100.0, val_read)),
+                        'write': max(0.0, min(100.0, val_write))
+                    })
+            except Exception:
+                pass
+        state['disks'] = disks_data
+        
         def fmt_speed(kb_s):
             if kb_s >= 1024:
                 return f"{kb_s/1024:.1f}M"
@@ -278,17 +403,32 @@ def update_loop():
         if img and icon:
             icon.icon = img
             
-        tooltip = f"CPU: {cpu:.0f}%"
-        if cpu_temp:
-            tooltip += f" ({cpu_temp:.0f}°C)"
-        tooltip += f" | RAM: {ram:.0f}%\n"
-        if HAS_GPU and gpu_percent is not None:
+        tooltip = ""
+        if state.get('show_cpu', True):
+            tooltip += f"CPU: {cpu:.0f}%"
+            if cpu_temp:
+                tooltip += f" ({cpu_temp:.0f}°C)"
+            tooltip += " | "
+        if state.get('show_ram', True):
+            tooltip += f"RAM: {ram:.0f}% | "
+        if tooltip.endswith(" | "):
+            tooltip = tooltip[:-3]
+        if tooltip:
+            tooltip += "\n"
+        if state.get('show_disk', True) and disks_data:
+            disk_strs = [f"{d['label']}: ↑{d['read']:.0f}% ↓{d['write']:.0f}%" for d in disks_data]
+            tooltip += f"Disks: {' '.join(disk_strs)}\n"
+        if state.get('show_gpu', True) and HAS_GPU and gpu_percent is not None:
             tooltip += f"GPU: {gpu_percent:.0f}%"
             if gpu_temp:
                 tooltip += f" ({gpu_temp:.0f}°C)"
             tooltip += "\n"
-        tooltip += f"Up: {up_text}/s | Down: {down_text}/s"
-        
+        if state.get('show_network', True):
+            tooltip += f"Up: {up_text}/s | Down: {down_text}/s"
+        tooltip = tooltip.strip()
+        if not tooltip:
+            tooltip = "WinMonitor"
+            
         if icon:
             icon.title = tooltip[:127]
             
@@ -298,9 +438,19 @@ def update_loop():
             gpu_t_str = f" ({gpu_temp:.0f}°C)" if gpu_temp else ""
             gpu_str = f" | GPU: {gpu_percent:.0f}%{gpu_t_str}"
         cpu_t_str = f" ({cpu_temp:.0f}°C)" if cpu_temp else ""
-        print(f"[{time.strftime('%H:%M:%S')}] Active | CPU: {cpu:.0f}%{cpu_t_str} | RAM: {ram:.0f}%{gpu_str} | Up: {up_text}/s | Down: {down_text}/s")
+        disk_str = ""
+        if disks_data:
+            disk_strs = [f"{d['label']}:R:{d['read']:.0f}% W:{d['write']:.0f}%" for d in disks_data]
+            disk_str = f" | Disks: {' '.join(disk_strs)}"
+        print(f"[{time.strftime('%H:%M:%S')}] Active | CPU: {cpu:.0f}%{cpu_t_str} | RAM: {ram:.0f}%{disk_str}{gpu_str} | Up: {up_text}/s | Down: {down_text}/s")
             
         time.sleep(UPDATE_MS / 1000.0)
+        
+    if pdh_query:
+        try:
+            win32pdh.CloseQuery(pdh_query)
+        except Exception:
+            pass
 
 
 def run_tray():
@@ -319,6 +469,13 @@ def run_tray():
     icon = pystray.Icon('win-monitor')
     icon.title = 'WinMonitor'
     icon.menu = pystray.Menu(
+        pystray.MenuItem('Show Modules', pystray.Menu(
+            pystray.MenuItem('CPU', lambda item: toggle_module('cpu'), checked=lambda item: state['show_cpu']),
+            pystray.MenuItem('RAM', lambda item: toggle_module('ram'), checked=lambda item: state['show_ram']),
+            pystray.MenuItem('Disk', lambda item: toggle_module('disk'), checked=lambda item: state['show_disk']),
+            pystray.MenuItem('GPU', lambda item: toggle_module('gpu'), checked=lambda item: state['show_gpu']),
+            pystray.MenuItem('Network', lambda item: toggle_module('network'), checked=lambda item: state['show_network'])
+        )),
         pystray.MenuItem('Start with Windows', toggle_autorun_from_tray, checked=lambda item: is_autorun_enabled()),
         pystray.MenuItem('Exit', on_exit)
     )
@@ -397,6 +554,23 @@ if __name__ == '__main__':
     # Right click menu
     menu = tk.Menu(root, tearoff=0)
     
+    show_menu = tk.Menu(menu, tearoff=0)
+    
+    show_cpu_var = tk.BooleanVar(value=state['show_cpu'])
+    show_ram_var = tk.BooleanVar(value=state['show_ram'])
+    show_disk_var = tk.BooleanVar(value=state['show_disk'])
+    show_gpu_var = tk.BooleanVar(value=state['show_gpu'])
+    show_network_var = tk.BooleanVar(value=state['show_network'])
+    
+    show_menu.add_checkbutton(label="CPU", variable=show_cpu_var, command=lambda: toggle_module('cpu'))
+    show_menu.add_checkbutton(label="RAM", variable=show_ram_var, command=lambda: toggle_module('ram'))
+    show_menu.add_checkbutton(label="Disk", variable=show_disk_var, command=lambda: toggle_module('disk'))
+    show_menu.add_checkbutton(label="GPU", variable=show_gpu_var, command=lambda: toggle_module('gpu'))
+    show_menu.add_checkbutton(label="Network", variable=show_network_var, command=lambda: toggle_module('network'))
+    
+    menu.add_cascade(label="Show Modules", menu=show_menu)
+    menu.add_separator()
+    
     autorun_var = tk.BooleanVar(value=is_autorun_enabled())
     menu.add_checkbutton(label="Start with Windows", variable=autorun_var, command=toggle_autorun)
     menu.add_separator()
@@ -405,6 +579,11 @@ if __name__ == '__main__':
     def show_context_menu(event):
         # Update checkbox status before showing menu
         autorun_var.set(is_autorun_enabled())
+        show_cpu_var.set(state['show_cpu'])
+        show_ram_var.set(state['show_ram'])
+        show_disk_var.set(state['show_disk'])
+        show_gpu_var.set(state['show_gpu'])
+        show_network_var.set(state['show_network'])
         menu.post(event.x_root, event.y_root)
         
     canvas.bind("<Button-3>", show_context_menu)
