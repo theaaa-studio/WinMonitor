@@ -2,6 +2,8 @@
 
 A lightweight, elegant, and non-intrusive hardware system monitor for Windows. It runs as a thin status bar that floats on or right above the taskbar in the bottom-right corner of the screen.
 
+![WinMonitor Preview](preview.png)
+
 ## Features
 - **Real-Time Data**: Dynamic text display showing CPU%, RAM%, GPU% (if available), and network speeds (Upload/Download).
 - **Temperatures**: Displays CPU package and GPU core temperatures (via LibreHardwareMonitor).
