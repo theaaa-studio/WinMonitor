@@ -50,5 +50,32 @@ You can bundle the script into a standalone Windows executable using PyInstaller
    ```
 3. The compiled `WinMonitor.exe` will be located inside the `dist/` directory.
 
+## Adding to Windows Startup
+
+WinMonitor provides three ways to start automatically when you log into Windows:
+
+### Method 1: Built-in Toggle (Recommended & Easiest)
+1. Run `WinMonitor` (either the compiled `WinMonitor.exe` or via the Python script).
+2. **Right-click** either the floating bar or the system tray icon (near the clock).
+3. Select **"Start with Windows"** to enable it. This automatically registers the application in the Windows Registry.
+
+### Method 2: Windows Startup Folder (Manual Shortcut)
+If you do not want to use the registry or prefer a standard shortcut:
+1. Press `Win + R` to open the **Run** dialog.
+2. Type `shell:startup` and press **Enter** to open the Startup folder.
+3. Right-click inside the folder, choose **New > Shortcut**.
+4. Browse to your compiled `WinMonitor.exe`, select it, and click **Finish**.
+
+### Method 3: Manual Registry Entry
+If you want to manually configure the registry:
+1. Press `Win + R`, type `regedit`, and press **Enter** to open the Registry Editor.
+2. Navigate to the following path:
+   ```text
+   HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+   ```
+3. Right-click the right pane, select **New > String Value**, and name it `WinMonitor`.
+4. Double-click the `WinMonitor` string and set its value to the absolute path of your executable (e.g., `C:\Users\YourUsername\Paths\WinMonitor.exe`).
+
 ## License
 MIT License
+
