@@ -25,8 +25,14 @@ To install dependencies:
 pip install psutil pillow pystray pynvml wmi
 ```
 
-## Running the Script
-To start WinMonitor:
+## Running the Application
+You can run WinMonitor in two ways:
+
+### 1. Pre-compiled Executable (Easiest)
+Download [dist/WinMonitor.exe](dist/WinMonitor.exe) directly from this repository and run it. No Python installation required.
+
+### 2. Python Script
+Run directly using Python:
 ```bash
 python WinMonitor.py
 ```
