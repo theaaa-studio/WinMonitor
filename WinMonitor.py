@@ -57,7 +57,8 @@ state = {
     'running': True,
     'temp_threshold': 80.0,
     'collapsed_mode': True,
-    'expanded': False
+    'expanded': False,
+    'show_floating_bar': True
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)), "winmonitor_config.json")
@@ -77,6 +78,7 @@ def load_config():
                 state['show_network'] = data.get('show_network', True)
                 state['temp_threshold'] = data.get('temp_threshold', 80.0)
                 state['collapsed_mode'] = data.get('collapsed_mode', True)
+                state['show_floating_bar'] = data.get('show_floating_bar', True)
     except Exception as e:
         print("Failed to load config:", e)
 
@@ -89,7 +91,8 @@ def save_config():
             'show_disk': state['show_disk'],
             'show_network': state['show_network'],
             'temp_threshold': state['temp_threshold'],
-            'collapsed_mode': state['collapsed_mode']
+            'collapsed_mode': state['collapsed_mode'],
+            'show_floating_bar': state['show_floating_bar']
         }
         try:
             with open(CONFIG_FILE, 'w') as f:
@@ -247,7 +250,7 @@ def get_temps():
     return cpu_t, gpu_t
 
 
-def make_gauge_icon(percent, up_kb_s, down_kb_s, size=(64, 64)):
+def make_gauge_icon(percent, size=(64, 64)):
     try:
         from PIL import Image, ImageDraw, ImageFont
     except Exception:
@@ -257,52 +260,38 @@ def make_gauge_icon(percent, up_kb_s, down_kb_s, size=(64, 64)):
     img = Image.new('RGBA', size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     try:
-        font_large = ImageFont.truetype("seguisym.ttf", 18)
-        font_small = ImageFont.truetype("seguisym.ttf", 10)
+        font_large = ImageFont.truetype("Segoe UI", 20)
     except Exception:
-        font_large = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+        try:
+            font_large = ImageFont.truetype("seguisym.ttf", 20)
+        except Exception:
+            font_large = ImageFont.load_default()
 
-    # background circle
-    cx, cy = w_px // 2, h_px // 2 - 6
+    cx, cy = w_px // 2, h_px // 2
     radius = min(w_px, h_px) // 2 - 4
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(24, 24, 24, 255))
+    
+    # Background track (thin ring)
+    draw.arc((cx - radius, cy - radius, cx + radius, cy + radius), start=0, end=360, fill=(80, 80, 80, 255), width=4)
 
-    # arc for percent
+    # Active progress arc
     start = -90
     end = int(start + 360 * (percent / 100.0))
-    draw.pieslice((cx - radius, cy - radius, cx + radius, cy + radius), start, end, fill=(38, 162, 255, 255))
+    if percent > 0:
+        draw.arc((cx - radius, cy - radius, cx + radius, cy + radius), start=start, end=end, fill=(255, 255, 255, 255), width=4)
 
-    # inner circle to create ring
-    inner_r = int(radius * 0.7)
-    draw.ellipse((cx - inner_r, cy - inner_r, cx + inner_r, cy + inner_r), fill=(12, 12, 12, 255))
-
-    # percentage text
-    pct_text = f"{int(percent)}%"
+    # Percentage text
+    pct_text = f"{int(percent)}"
     try:
         bbox = draw.textbbox((0, 0), pct_text, font=font_large)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
     except Exception:
-        tw, th = font_large.getsize(pct_text)
-    draw.text((cx - tw / 2, cy - th / 2), pct_text, font=font_large, fill=(255, 255, 255, 255))
-
-    # network speeds below the gauge
-    up_text = f"↑ {up_kb_s}"
-    down_text = f"↓ {down_kb_s}"
-    try:
-        up_bb = draw.textbbox((0, 0), up_text, font=font_small)
-        up_w = up_bb[2] - up_bb[0]
-    except Exception:
-        up_w, _ = font_small.getsize(up_text)
-    try:
-        down_bb = draw.textbbox((0, 0), down_text, font=font_small)
-        down_w = down_bb[2] - down_bb[0]
-    except Exception:
-        down_w, _ = font_small.getsize(down_text)
-    gap = 6
-    draw.text((cx - up_w - gap/2, h_px - 14), up_text, font=font_small, fill=(180, 255, 180, 255))
-    draw.text((cx + gap/2, h_px - 14), down_text, font=font_small, fill=(180, 180, 255, 255))
+        try:
+            tw, th = font_large.getsize(pct_text)
+        except Exception:
+            tw, th = 15, 15
+            
+    draw.text((cx - tw / 2, cy - th / 2 - 2), pct_text, font=font_large, fill=(255, 255, 255, 255))
 
     return img
 
@@ -514,6 +503,21 @@ def toggle_collapsed_mode(icon=None, item=None):
     if root and canvas:
         root.after(0, lambda: draw_bar(canvas))
 
+def set_floating_bar_visibility(visible):
+    state['show_floating_bar'] = visible
+    save_config()
+    if root:
+        root.after(0, apply_floating_bar_visibility)
+
+def apply_floating_bar_visibility():
+    if root:
+        if state.get('show_floating_bar', True):
+            root.deiconify()
+            if canvas:
+                draw_bar(canvas)
+        else:
+            root.withdraw()
+
 def refresh_bar_ui():
     if not state['running'] or canvas is None:
         return
@@ -606,7 +610,7 @@ def update_loop():
         up_text = fmt_speed(up)
         down_text = fmt_speed(down)
         
-        img = make_gauge_icon(cpu, up_text, down_text)
+        img = make_gauge_icon(cpu)
         if img and icon:
             icon.icon = img
             
@@ -684,6 +688,7 @@ def run_tray():
             pystray.MenuItem('Network', lambda item: toggle_module('network'), checked=lambda item: state['show_network'])
         )),
         pystray.MenuItem('Collapsed Mode', toggle_collapsed_mode, checked=lambda item: state['collapsed_mode']),
+        pystray.MenuItem('Show Floating Bar', lambda item: set_floating_bar_visibility(not state.get('show_floating_bar', True)), checked=lambda item: state.get('show_floating_bar', True)),
         pystray.MenuItem('Start with Windows', toggle_autorun_from_tray, checked=lambda item: is_autorun_enabled()),
         pystray.MenuItem('Exit', on_exit)
     )
@@ -693,7 +698,7 @@ def run_tray():
     t.start()
     
     # Initial icon
-    img = make_gauge_icon(0, "0K", "0K")
+    img = make_gauge_icon(0)
     if img:
         icon.icon = img
             
@@ -783,6 +788,10 @@ if __name__ == '__main__':
     
     collapsed_var = tk.BooleanVar(value=state['collapsed_mode'])
     menu.add_checkbutton(label="Collapsed Mode", variable=collapsed_var, command=toggle_collapsed_mode)
+    
+    show_floating_bar_var = tk.BooleanVar(value=state.get('show_floating_bar', True))
+    menu.add_checkbutton(label="Show Floating Bar", variable=show_floating_bar_var, command=lambda: set_floating_bar_visibility(show_floating_bar_var.get()))
+    
     menu.add_command(label="Set Temp Threshold...", command=set_temp_threshold_dialog)
     menu.add_separator()
     
@@ -800,6 +809,7 @@ if __name__ == '__main__':
         show_gpu_var.set(state['show_gpu'])
         show_network_var.set(state['show_network'])
         collapsed_var.set(state['collapsed_mode'])
+        show_floating_bar_var.set(state.get('show_floating_bar', True))
         menu.post(event.x_root, event.y_root)
         
     canvas.bind("<Button-3>", show_context_menu)
@@ -810,6 +820,10 @@ if __name__ == '__main__':
     
     # Run GUI refresh loop
     refresh_bar_ui()
+    
+    # Hide window at startup if show_floating_bar is False
+    if not state.get('show_floating_bar', True):
+        root.withdraw()
     
     # Run temperature warning flashing loop
     flash_loop()
