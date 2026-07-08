@@ -4,3 +4,4 @@ dist/
 *.spec
 *.png
 !preview.png
+winmonitor_config.json

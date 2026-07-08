@@ -2,10 +2,12 @@ import psutil
 import time
 import threading
 import tkinter as tk
+from tkinter import simpledialog
 import sys
 import winreg
 import os
 import json
+import ctypes
 
 try:
     import pynvml
@@ -17,8 +19,15 @@ except Exception:
 
 try:
     import wmi
-    w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
-    HAS_WMI = True
+    try:
+        w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
+        HAS_WMI = True
+    except Exception:
+        try:
+            w = wmi.WMI(namespace="root\\OpenHardwareMonitor")
+            HAS_WMI = True
+        except Exception:
+            HAS_WMI = False
 except Exception:
     HAS_WMI = False
 
@@ -44,7 +53,8 @@ state = {
     'show_gpu': True,
     'show_disk': True,
     'show_network': True,
-    'running': True
+    'running': True,
+    'temp_threshold': 80.0
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)), "winmonitor_config.json")
@@ -62,6 +72,7 @@ def load_config():
                 state['show_gpu'] = data.get('show_gpu', True)
                 state['show_disk'] = data.get('show_disk', True)
                 state['show_network'] = data.get('show_network', True)
+                state['temp_threshold'] = data.get('temp_threshold', 80.0)
     except Exception as e:
         print("Failed to load config:", e)
 
@@ -72,7 +83,8 @@ def save_config():
             'show_ram': state['show_ram'],
             'show_gpu': state['show_gpu'],
             'show_disk': state['show_disk'],
-            'show_network': state['show_network']
+            'show_network': state['show_network'],
+            'temp_threshold': state['temp_threshold']
         }
         try:
             with open(CONFIG_FILE, 'w') as f:
@@ -143,9 +155,62 @@ def toggle_autorun_from_tray(icon, item):
     toggle_autorun()
 
 
+class CoreTempSharedDataEx(ctypes.Structure):
+    _pack_ = 4
+    _fields_ = [
+        ("uiLoad", ctypes.c_uint * 256),
+        ("uiTjMax", ctypes.c_uint * 128),
+        ("uiCoreCnt", ctypes.c_uint),
+        ("uiCPUCnt", ctypes.c_uint),
+        ("fTemp", ctypes.c_float * 256),
+        ("fVID", ctypes.c_float),
+        ("fCPUSpeed", ctypes.c_float),
+        ("fFSBSpeed", ctypes.c_float),
+        ("fMultiplier", ctypes.c_float),
+        ("sCPUName", ctypes.c_char * 100),
+        ("ucFahrenheit", ctypes.c_ubyte),
+        ("ucDeltaToTjMax", ctypes.c_ubyte),
+        ("ucTdpSupported", ctypes.c_ubyte),
+        ("ucPowerSupported", ctypes.c_ubyte),
+        ("uiStructVersion", ctypes.c_uint),
+        ("uiTdp", ctypes.c_uint * 128),
+        ("fPower", ctypes.c_float * 128),
+        ("fMultipliers", ctypes.c_float * 256),
+    ]
+
+def get_coretemp_temperature():
+    try:
+        hMapFile = ctypes.windll.kernel32.OpenFileMappingW(4, False, "CoreTempSharedData")
+        if not hMapFile:
+            return None
+        pBuf = ctypes.windll.kernel32.MapViewOfFile(hMapFile, 4, 0, 0, 0)
+        if not pBuf:
+            ctypes.windll.kernel32.CloseHandle(hMapFile)
+            return None
+        try:
+            data = CoreTempSharedDataEx.from_address(pBuf)
+            if data.uiCoreCnt > 0:
+                temps = [data.fTemp[i] for i in range(data.uiCoreCnt)]
+                is_fahrenheit = bool(data.ucFahrenheit)
+                raw_temp = max(temps) if temps else None
+                if raw_temp is not None and is_fahrenheit:
+                    raw_temp = (raw_temp - 32) * 5 / 9
+                return raw_temp
+        finally:
+            ctypes.windll.kernel32.UnmapViewOfFile(pBuf)
+            ctypes.windll.kernel32.CloseHandle(hMapFile)
+    except Exception:
+        pass
+    return None
+
 def get_temps():
     cpu_t, gpu_t = None, None
-    if HAS_WMI:
+    
+    # Try CoreTemp shared memory first
+    cpu_t = get_coretemp_temperature()
+    
+    # Fallback to WMI if CoreTemp is not running/available
+    if cpu_t is None and HAS_WMI:
         try:
             for s in w.Sensor():
                 if s.SensorType == 'Temperature':
@@ -157,6 +222,23 @@ def get_temps():
                     break
         except Exception:
             pass
+    elif HAS_WMI:
+        # If we got CPU temp from CoreTemp, still try to find GPU temp from WMI
+        try:
+            for s in w.Sensor():
+                if s.SensorType == 'Temperature' and 'GPU' in s.Name:
+                    gpu_t = s.Value
+                    break
+        except Exception:
+            pass
+            
+    # Try NVML for GPU temp if WMI did not provide it
+    if gpu_t is None and HAS_GPU:
+        try:
+            gpu_t = pynvml.nvmlDeviceGetTemperature(gpu_handle, 0)
+        except Exception:
+            pass
+            
     return cpu_t, gpu_t
 
 
@@ -309,10 +391,54 @@ def draw_bar(canvas):
         root.geometry(f"{new_win_w}x24+{new_x}+{bar_y}")
 
 
+flash_state = False
+
+def flash_loop():
+    global flash_state
+    if not state['running'] or canvas is None:
+        return
+        
+    cpu_t = state.get('cpu_temp')
+    gpu_t = state.get('gpu_temp')
+    threshold = state.get('temp_threshold', 80.0)
+    
+    high_temp = False
+    if cpu_t is not None and cpu_t >= threshold:
+        high_temp = True
+    if gpu_t is not None and gpu_t >= threshold:
+        high_temp = True
+        
+    if high_temp:
+        flash_state = not flash_state
+        bg_color = '#550000' if flash_state else '#0a0a0c'
+        canvas.config(bg=bg_color)
+        root.config(bg=bg_color)
+    else:
+        canvas.config(bg='#0a0a0c')
+        root.config(bg='#0a0a0c')
+        flash_state = False
+        
+    root.after(500, flash_loop)
+
+def set_temp_threshold_dialog():
+    new_val = simpledialog.askfloat(
+        "Temperature Threshold",
+        "Enter temperature threshold (°C) for warning alert:",
+        initialvalue=state['temp_threshold'],
+        minvalue=30.0,
+        maxvalue=120.0,
+        parent=root
+    )
+    if new_val is not None:
+        state['temp_threshold'] = new_val
+        save_config()
+
 def refresh_bar_ui():
     if not state['running'] or canvas is None:
         return
     draw_bar(canvas)
+    if root:
+        root.attributes('-topmost', True)
     root.after(1000, refresh_bar_ui)
 
 
@@ -571,6 +697,9 @@ if __name__ == '__main__':
     menu.add_cascade(label="Show Modules", menu=show_menu)
     menu.add_separator()
     
+    menu.add_command(label="Set Temp Threshold...", command=set_temp_threshold_dialog)
+    menu.add_separator()
+    
     autorun_var = tk.BooleanVar(value=is_autorun_enabled())
     menu.add_checkbutton(label="Start with Windows", variable=autorun_var, command=toggle_autorun)
     menu.add_separator()
@@ -594,5 +723,8 @@ if __name__ == '__main__':
     
     # Run GUI refresh loop
     refresh_bar_ui()
+    
+    # Run temperature warning flashing loop
+    flash_loop()
     
     root.mainloop()
