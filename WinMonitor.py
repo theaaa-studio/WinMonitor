@@ -307,19 +307,13 @@ def make_gauge_icon(percent, up_kb_s, down_kb_s, size=(64, 64)):
     return img
 
 
-def draw_cog(canvas, x_offset=12, y_offset=12, radius=5, color="#888888"):
-    # Outer circle
-    canvas.create_oval(x_offset - radius, y_offset - radius, x_offset + radius, y_offset + radius, outline=color, width=2)
-    # Inner hole
-    canvas.create_oval(x_offset - 2, y_offset - 2, x_offset + 2, y_offset + 2, fill=color, outline=color)
-    # 8 teeth lines
-    for i in range(8):
-        angle = i * (math.pi / 4)
-        x1 = x_offset + (radius - 1) * math.cos(angle)
-        y1 = y_offset + (radius - 1) * math.sin(angle)
-        x2 = x_offset + (radius + 2.5) * math.cos(angle)
-        y2 = y_offset + (radius + 2.5) * math.sin(angle)
-        canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
+def draw_monitor(canvas, x_offset=12, y_offset=12, color="#888888"):
+    # Screen outline
+    canvas.create_rectangle(x_offset - 8, y_offset - 7, x_offset + 8, y_offset + 3, outline=color, width=2)
+    # Stand neck
+    canvas.create_line(x_offset, y_offset + 3, x_offset, y_offset + 6, fill=color, width=2)
+    # Base
+    canvas.create_line(x_offset - 4, y_offset + 6, x_offset + 4, y_offset + 6, fill=color, width=2)
 
 def draw_flame(canvas, x_offset=12, y_offset=12, color="#ff3300"):
     # Simple flame polygon points relative to center (x_offset, y_offset)
@@ -379,7 +373,7 @@ def draw_bar(canvas):
         if high_temp:
             draw_flame(canvas, 12, 12, "#ff3300")
         else:
-            draw_cog(canvas, 12, 12, 5, "#888888")
+            draw_monitor(canvas, 12, 12, "#888888")
             
         new_win_w = 24
     else:
