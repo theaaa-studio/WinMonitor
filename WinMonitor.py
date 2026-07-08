@@ -8,6 +8,7 @@ import winreg
 import os
 import json
 import ctypes
+import math
 
 try:
     import pynvml
@@ -54,7 +55,9 @@ state = {
     'show_disk': True,
     'show_network': True,
     'running': True,
-    'temp_threshold': 80.0
+    'temp_threshold': 80.0,
+    'collapsed_mode': True,
+    'expanded': False
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)), "winmonitor_config.json")
@@ -73,6 +76,7 @@ def load_config():
                 state['show_disk'] = data.get('show_disk', True)
                 state['show_network'] = data.get('show_network', True)
                 state['temp_threshold'] = data.get('temp_threshold', 80.0)
+                state['collapsed_mode'] = data.get('collapsed_mode', True)
     except Exception as e:
         print("Failed to load config:", e)
 
@@ -84,7 +88,8 @@ def save_config():
             'show_gpu': state['show_gpu'],
             'show_disk': state['show_disk'],
             'show_network': state['show_network'],
-            'temp_threshold': state['temp_threshold']
+            'temp_threshold': state['temp_threshold'],
+            'collapsed_mode': state['collapsed_mode']
         }
         try:
             with open(CONFIG_FILE, 'w') as f:
@@ -302,6 +307,45 @@ def make_gauge_icon(percent, up_kb_s, down_kb_s, size=(64, 64)):
     return img
 
 
+def draw_cog(canvas, x_offset=12, y_offset=12, radius=5, color="#888888"):
+    # Outer circle
+    canvas.create_oval(x_offset - radius, y_offset - radius, x_offset + radius, y_offset + radius, outline=color, width=2)
+    # Inner hole
+    canvas.create_oval(x_offset - 2, y_offset - 2, x_offset + 2, y_offset + 2, fill=color, outline=color)
+    # 8 teeth lines
+    for i in range(8):
+        angle = i * (math.pi / 4)
+        x1 = x_offset + (radius - 1) * math.cos(angle)
+        y1 = y_offset + (radius - 1) * math.sin(angle)
+        x2 = x_offset + (radius + 2.5) * math.cos(angle)
+        y2 = y_offset + (radius + 2.5) * math.sin(angle)
+        canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
+
+def draw_flame(canvas, x_offset=12, y_offset=12, color="#ff3300"):
+    # Simple flame polygon points relative to center (x_offset, y_offset)
+    points = [
+        x_offset, y_offset - 8,
+        x_offset - 3, y_offset - 4,
+        x_offset - 5, y_offset,
+        x_offset - 5, y_offset + 4,
+        x_offset - 2, y_offset + 7,
+        x_offset, y_offset + 8,
+        x_offset + 2, y_offset + 7,
+        x_offset + 5, y_offset + 4,
+        x_offset + 5, y_offset,
+        x_offset + 3, y_offset - 4
+    ]
+    canvas.create_polygon(points, fill=color, outline=color, smooth=True)
+    inner_points = [
+        x_offset, y_offset - 3,
+        x_offset - 2, y_offset,
+        x_offset - 2, y_offset + 3,
+        x_offset, y_offset + 5,
+        x_offset + 2, y_offset + 3,
+        x_offset + 2, y_offset
+    ]
+    canvas.create_polygon(inner_points, fill="#ffea00", outline="#ffea00", smooth=True)
+
 def draw_bar(canvas):
     canvas.delete('all')
     
@@ -318,70 +362,86 @@ def draw_bar(canvas):
             return f"{kb_s/1024:.1f} MB/s"
         return f"{kb_s:.0f} KB/s"
         
-    parts = []
-    
-    def add_divider():
-        if parts:
-            parts.append(("  |  ", "#888888"))
-            
-    if state.get('show_cpu', True):
-        parts.append(("CPU ", "#888888"))
-        cpu_val = f"{cpu:.0f}%"
-        if cpu_temp:
-            cpu_val += f" ({cpu_temp:.0f}°C)"
-        parts.append((cpu_val, "#00e1ff"))
-        
-    if state.get('show_ram', True):
-        add_divider()
-        parts.append(("RAM ", "#888888"))
-        parts.append((f"{ram:.0f}%", "#ffea00"))
-        
-    if state.get('show_disk', True):
-        disks = state.get('disks', [])
-        for i, disk in enumerate(disks):
-            if i == 0:
-                add_divider()
-            else:
-                parts.append(("   ", "#888888"))
-            parts.append((f"{disk['label']}: ↑ ", "#888888"))
-            parts.append((f"{disk['read']:.0f}%", "#00ff88"))
-            parts.append((" ↓ ", "#888888"))
-            parts.append((f"{disk['write']:.0f}%", "#00ff88"))
-            
-    if state.get('show_gpu', True) and HAS_GPU and gpu is not None:
-        add_divider()
-        parts.append(("GPU ", "#888888"))
-        gpu_val = f"{gpu:.0f}%"
-        if gpu_temp:
-            gpu_val += f" ({gpu_temp:.0f}°C)"
-        parts.append((gpu_val, "#ff007f"))
-        
-    if state.get('show_network', True):
-        add_divider()
-        parts.append(("↑ ", "#888888"))
-        parts.append((f"{fmt_speed(up)}", "#ff7700"))
-        parts.append(("  ↓ ", "#888888"))
-        parts.append((f"{fmt_speed(down)}", "#00a2ff"))
-        
-    if not parts:
-        parts.append(("WinMonitor (All hidden)", "#888888"))
-    
     global right_edge_anchor, bar_y
-    x = 5
-    y = 12
-    for text, color in parts:
-        txt_id = canvas.create_text(x, y, text=text, fill=color, font=("Segoe UI", 9, "bold"), anchor="w", tags="text_group")
-        bbox = canvas.bbox(txt_id)
-        if bbox:
-            x = bbox[2]
-            
-    # Calculate exact width needed (plus right padding)
-    new_win_w = int(x) + 5
     
-    # Update canvas config size
+    # Check if collapsed mode is active and we are not hovered/expanded
+    if state.get('collapsed_mode', True) and not state.get('expanded', False):
+        cpu_t = state.get('cpu_temp')
+        gpu_t = state.get('gpu_temp')
+        threshold = state.get('temp_threshold', 80.0)
+        
+        high_temp = False
+        if cpu_t is not None and cpu_t >= threshold:
+            high_temp = True
+        if gpu_t is not None and gpu_t >= threshold:
+            high_temp = True
+            
+        if high_temp:
+            draw_flame(canvas, 12, 12, "#ff3300")
+        else:
+            draw_cog(canvas, 12, 12, 5, "#888888")
+            
+        new_win_w = 24
+    else:
+        parts = []
+        def add_divider():
+            if parts:
+                parts.append(("  |  ", "#888888"))
+                
+        if state.get('show_cpu', True):
+            parts.append(("CPU ", "#888888"))
+            cpu_val = f"{cpu:.0f}%"
+            if cpu_temp:
+                cpu_val += f" ({cpu_temp:.0f}°C)"
+            parts.append((cpu_val, "#00e1ff"))
+            
+        if state.get('show_ram', True):
+            add_divider()
+            parts.append(("RAM ", "#888888"))
+            parts.append((f"{ram:.0f}%", "#ffea00"))
+            
+        if state.get('show_disk', True):
+            disks = state.get('disks', [])
+            for i, disk in enumerate(disks):
+                if i == 0:
+                    add_divider()
+                else:
+                    parts.append(("   ", "#888888"))
+                parts.append((f"{disk['label']}: ↑ ", "#888888"))
+                parts.append((f"{disk['read']:.0f}%", "#00ff88"))
+                parts.append((" ↓ ", "#888888"))
+                parts.append((f"{disk['write']:.0f}%", "#00ff88"))
+                
+        if state.get('show_gpu', True) and HAS_GPU and gpu is not None:
+            add_divider()
+            parts.append(("GPU ", "#888888"))
+            gpu_val = f"{gpu:.0f}%"
+            if gpu_temp:
+                gpu_val += f" ({gpu_temp:.0f}°C)"
+            parts.append((gpu_val, "#ff007f"))
+            
+        if state.get('show_network', True):
+            add_divider()
+            parts.append(("↑ ", "#888888"))
+            parts.append((f"{fmt_speed(up)}", "#ff7700"))
+            parts.append(("  ↓ ", "#888888"))
+            parts.append((f"{fmt_speed(down)}", "#00a2ff"))
+            
+        if not parts:
+            parts.append(("WinMonitor (All hidden)", "#888888"))
+            
+        x = 5
+        y = 12
+        for text, color in parts:
+            txt_id = canvas.create_text(x, y, text=text, fill=color, font=("Segoe UI", 9, "bold"), anchor="w", tags="text_group")
+            bbox = canvas.bbox(txt_id)
+            if bbox:
+                x = bbox[2]
+                
+        new_win_w = int(x) + 5
+        
     canvas.config(width=new_win_w)
     
-    # Adjust window size and position to keep right edge fixed
     if root:
         if bar_y is None:
             bar_y = root.winfo_y()
@@ -432,6 +492,33 @@ def set_temp_threshold_dialog():
     if new_val is not None:
         state['temp_threshold'] = new_val
         save_config()
+
+def on_enter(event):
+    if state.get('collapsed_mode', True):
+        state['expanded'] = True
+        draw_bar(canvas)
+
+def on_leave(event):
+    if state.get('collapsed_mode', True):
+        if root:
+            x = root.winfo_x()
+            y = root.winfo_y()
+            w = root.winfo_width()
+            h = root.winfo_height()
+            mx, my = root.winfo_pointerxy()
+            if not (x <= mx <= x + w and y <= my <= y + h):
+                state['expanded'] = False
+                draw_bar(canvas)
+
+def toggle_collapsed_mode(icon=None, item=None):
+    state['collapsed_mode'] = not state['collapsed_mode']
+    if not state['collapsed_mode']:
+        state['expanded'] = True
+    else:
+        state['expanded'] = False
+    save_config()
+    if root and canvas:
+        root.after(0, lambda: draw_bar(canvas))
 
 def refresh_bar_ui():
     if not state['running'] or canvas is None:
@@ -602,6 +689,7 @@ def run_tray():
             pystray.MenuItem('GPU', lambda item: toggle_module('gpu'), checked=lambda item: state['show_gpu']),
             pystray.MenuItem('Network', lambda item: toggle_module('network'), checked=lambda item: state['show_network'])
         )),
+        pystray.MenuItem('Collapsed Mode', toggle_collapsed_mode, checked=lambda item: state['collapsed_mode']),
         pystray.MenuItem('Start with Windows', toggle_autorun_from_tray, checked=lambda item: is_autorun_enabled()),
         pystray.MenuItem('Exit', on_exit)
     )
@@ -676,6 +764,8 @@ if __name__ == '__main__':
     
     canvas.bind("<ButtonPress-1>", start_drag)
     canvas.bind("<B1-Motion>", drag)
+    canvas.bind("<Enter>", on_enter)
+    canvas.bind("<Leave>", on_leave)
     
     # Right click menu
     menu = tk.Menu(root, tearoff=0)
@@ -697,6 +787,8 @@ if __name__ == '__main__':
     menu.add_cascade(label="Show Modules", menu=show_menu)
     menu.add_separator()
     
+    collapsed_var = tk.BooleanVar(value=state['collapsed_mode'])
+    menu.add_checkbutton(label="Collapsed Mode", variable=collapsed_var, command=toggle_collapsed_mode)
     menu.add_command(label="Set Temp Threshold...", command=set_temp_threshold_dialog)
     menu.add_separator()
     
@@ -713,6 +805,7 @@ if __name__ == '__main__':
         show_disk_var.set(state['show_disk'])
         show_gpu_var.set(state['show_gpu'])
         show_network_var.set(state['show_network'])
+        collapsed_var.set(state['collapsed_mode'])
         menu.post(event.x_root, event.y_root)
         
     canvas.bind("<Button-3>", show_context_menu)
