@@ -8,10 +8,10 @@ A lightweight, elegant, and non-intrusive hardware system monitor for Windows. I
 - **Real-Time Data**: Dynamic text display showing CPU%, RAM%, GPU% (if available), network speeds (Upload/Download), and per-drive disk performance active times.
 - **Disk Performance**: Real-time read (↑) and write (↓) performance percentages for each physical drive (e.g. `C: ↑ 0% ↓ 5%`) utilizing Windows performance counters.
 - **Customizable Module Visibility**: Choose what information you want to see. Toggle individual modules (CPU, RAM, Disk, GPU, Network) on/off directly from the right-click menu or system tray menu.
-- **Show Floating Bar Toggle**: Toggle visibility of the on-screen floating bar. When hidden, the application runs purely in the system tray, while keeping all monitoring features alive and readable in the tray tooltip.
+
 - **Minimalist Native Tray Icon**: A clean, high-contrast circular progress ring showing CPU usage with a centered percentage number, styled to blend in with Windows 11 system indicators.
-- **Configuration Persistence**: Your customized visibility settings and show/hide preferences are automatically saved locally to `winmonitor_config.json` and persist across application runs.
-- **Temperatures**: Displays CPU package and GPU core temperatures (via LibreHardwareMonitor).
+- **Configuration Persistence**: Your customized visibility settings are automatically saved locally to `winmonitor_config.json` and persist across application runs.
+- **Temperatures**: Displays CPU package and GPU core temperatures (via CoreTemp, LibreHardwareMonitor, or OpenHardwareMonitor).
 - **Draggable**: Drag with your left mouse button to position it anywhere on your screen.
 - **Auto-Sizing**: Automatically shrinks or grows to fit the active text perfectly.
 - **Fixed Right Anchor**: Auto-resizes from the left side, keeping the right edge fixed exactly where you position it.
