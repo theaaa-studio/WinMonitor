@@ -57,8 +57,7 @@ state = {
     'running': True,
     'temp_threshold': 80.0,
     'collapsed_mode': True,
-    'expanded': False,
-    'show_floating_bar': True
+    'expanded': False
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)), "winmonitor_config.json")
@@ -78,7 +77,6 @@ def load_config():
                 state['show_network'] = data.get('show_network', True)
                 state['temp_threshold'] = data.get('temp_threshold', 80.0)
                 state['collapsed_mode'] = data.get('collapsed_mode', True)
-                state['show_floating_bar'] = data.get('show_floating_bar', True)
     except Exception as e:
         print("Failed to load config:", e)
 
@@ -91,8 +89,7 @@ def save_config():
             'show_disk': state['show_disk'],
             'show_network': state['show_network'],
             'temp_threshold': state['temp_threshold'],
-            'collapsed_mode': state['collapsed_mode'],
-            'show_floating_bar': state['show_floating_bar']
+            'collapsed_mode': state['collapsed_mode']
         }
         try:
             with open(CONFIG_FILE, 'w') as f:
@@ -503,21 +500,6 @@ def toggle_collapsed_mode(icon=None, item=None):
     if root and canvas:
         root.after(0, lambda: draw_bar(canvas))
 
-def set_floating_bar_visibility(visible):
-    state['show_floating_bar'] = visible
-    save_config()
-    if root:
-        root.after(0, apply_floating_bar_visibility)
-
-def apply_floating_bar_visibility():
-    if root:
-        if state.get('show_floating_bar', True):
-            root.deiconify()
-            if canvas:
-                draw_bar(canvas)
-        else:
-            root.withdraw()
-
 def refresh_bar_ui():
     if not state['running'] or canvas is None:
         return
@@ -688,7 +670,6 @@ def run_tray():
             pystray.MenuItem('Network', lambda item: toggle_module('network'), checked=lambda item: state['show_network'])
         )),
         pystray.MenuItem('Collapsed Mode', toggle_collapsed_mode, checked=lambda item: state['collapsed_mode']),
-        pystray.MenuItem('Show Floating Bar', lambda item: set_floating_bar_visibility(not state.get('show_floating_bar', True)), checked=lambda item: state.get('show_floating_bar', True)),
         pystray.MenuItem('Start with Windows', toggle_autorun_from_tray, checked=lambda item: is_autorun_enabled()),
         pystray.MenuItem('Exit', on_exit)
     )
@@ -789,9 +770,6 @@ if __name__ == '__main__':
     collapsed_var = tk.BooleanVar(value=state['collapsed_mode'])
     menu.add_checkbutton(label="Collapsed Mode", variable=collapsed_var, command=toggle_collapsed_mode)
     
-    show_floating_bar_var = tk.BooleanVar(value=state.get('show_floating_bar', True))
-    menu.add_checkbutton(label="Show Floating Bar", variable=show_floating_bar_var, command=lambda: set_floating_bar_visibility(show_floating_bar_var.get()))
-    
     menu.add_command(label="Set Temp Threshold...", command=set_temp_threshold_dialog)
     menu.add_separator()
     
@@ -809,7 +787,6 @@ if __name__ == '__main__':
         show_gpu_var.set(state['show_gpu'])
         show_network_var.set(state['show_network'])
         collapsed_var.set(state['collapsed_mode'])
-        show_floating_bar_var.set(state.get('show_floating_bar', True))
         menu.post(event.x_root, event.y_root)
         
     canvas.bind("<Button-3>", show_context_menu)
@@ -820,10 +797,6 @@ if __name__ == '__main__':
     
     # Run GUI refresh loop
     refresh_bar_ui()
-    
-    # Hide window at startup if show_floating_bar is False
-    if not state.get('show_floating_bar', True):
-        root.withdraw()
     
     # Run temperature warning flashing loop
     flash_loop()
