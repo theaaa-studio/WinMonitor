@@ -625,18 +625,7 @@ def update_loop():
         if icon:
             icon.title = tooltip[:127]
             
-        # Debug print status to terminal
-        gpu_str = ""
-        if HAS_GPU and gpu_percent is not None:
-            gpu_t_str = f" ({gpu_temp:.0f}°C)" if gpu_temp else ""
-            gpu_str = f" | GPU: {gpu_percent:.0f}%{gpu_t_str}"
-        cpu_t_str = f" ({cpu_temp:.0f}°C)" if cpu_temp else ""
-        disk_str = ""
-        if disks_data:
-            disk_strs = [f"{d['label']}:R:{d['read']:.0f}% W:{d['write']:.0f}%" for d in disks_data]
-            disk_str = f" | Disks: {' '.join(disk_strs)}"
-        print(f"[{time.strftime('%H:%M:%S')}] Active | CPU: {cpu:.0f}%{cpu_t_str} | RAM: {ram:.0f}%{disk_str}{gpu_str} | Up: {up_text}/s | Down: {down_text}/s")
-            
+
         time.sleep(UPDATE_MS / 1000.0)
         
     if pdh_query:
