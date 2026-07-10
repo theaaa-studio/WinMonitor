@@ -506,6 +506,7 @@ def refresh_bar_ui():
     draw_bar(canvas)
     if root:
         root.attributes('-topmost', True)
+        root.lift()
     root.after(1000, refresh_bar_ui)
 
 
@@ -696,6 +697,7 @@ if __name__ == '__main__':
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes('-topmost', True)
+    root.lift()
     root.attributes('-alpha', 0.95)
     root.configure(bg='#0a0a0c')
     

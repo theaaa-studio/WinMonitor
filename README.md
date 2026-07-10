@@ -15,6 +15,7 @@ A lightweight, elegant, and non-intrusive hardware system monitor for Windows. I
 - **Draggable**: Drag with your left mouse button to position it anywhere on your screen.
 - **Auto-Sizing**: Automatically shrinks or grows to fit the active text perfectly.
 - **Fixed Right Anchor**: Auto-resizes from the left side, keeping the right edge fixed exactly where you position it.
+- **Always on Top**: The status bar stays above other windows so you can always see your system stats.
 - **Auto-Run**: Toggle "Start with Windows" directly from the right-click menu or the system tray icon to enable/disable starting on boot.
 - **Lightweight**: Minimal CPU and RAM footprint.
 
