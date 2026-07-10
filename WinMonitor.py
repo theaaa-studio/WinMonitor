@@ -427,8 +427,8 @@ def draw_bar(canvas):
             bar_y = root.winfo_y()
         if right_edge_anchor is None:
             right_edge_anchor = root.winfo_x() + root.winfo_width()
-        new_x = right_edge_anchor - new_win_w
-        root.geometry(f"{new_win_w}x24+{new_x}+{bar_y}")
+        new_x = int(right_edge_anchor - new_win_w)
+        root.geometry(f"{int(new_win_w)}x24+{new_x}+{int(bar_y)}")
 
 
 flash_state = False
@@ -507,6 +507,11 @@ def refresh_bar_ui():
     if root:
         root.attributes('-topmost', True)
         root.lift()
+        try:
+            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+            ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
+        except Exception:
+            pass
     root.after(1000, refresh_bar_ui)
 
 
@@ -647,7 +652,7 @@ def run_tray():
         state['running'] = False
         icon.stop()
         if root:
-            root.after(0, root.destroy)
+            root.after(0, root.quit)
 
     icon = pystray.Icon('win-monitor')
     icon.title = 'WinMonitor'
@@ -688,14 +693,41 @@ def on_exit_from_gui():
     state['running'] = False
     if icon:
         icon.stop()
-    root.destroy()
+    root.quit()
 
 
 if __name__ == '__main__':
 
             
-    root = tk.Tk()
+    main_root = tk.Tk()
+    main_root.withdraw()
+    root = tk.Toplevel(main_root)
     root.overrideredirect(True)
+    
+    # Dimensions: start with a standard width, will auto-resize instantly
+    win_w = 480 if HAS_GPU else 380
+    win_h = 24
+    
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    # Initial position: bottom right, right above the taskbar
+    x = int(screen_w - win_w - 10)
+    y = int(screen_h - win_h - 40)
+    root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+    root.update_idletasks()
+    
+    try:
+        GWL_EXSTYLE = -20
+        WS_EX_APPWINDOW = 0x00040000
+        WS_EX_TOOLWINDOW = 0x00000080
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        style = style & ~WS_EX_APPWINDOW
+        style = style | WS_EX_TOOLWINDOW
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+    except Exception:
+        pass
+
     root.attributes('-topmost', True)
     root.lift()
     root.attributes('-alpha', 0.95)
@@ -715,17 +747,6 @@ if __name__ == '__main__':
         right_edge_anchor = x + root.winfo_width()
         bar_y = y
         
-    # Dimensions: start with a standard width, will auto-resize instantly
-    win_w = 480 if HAS_GPU else 380
-    win_h = 24
-    
-    screen_w = root.winfo_screenwidth()
-    screen_h = root.winfo_screenheight()
-    # Initial position: bottom right, right above the taskbar
-    x = screen_w - win_w - 10
-    y = screen_h - win_h - 40
-    root.geometry(f"{win_w}x{win_h}+{x}+{y}")
-    
     # Initialize the right edge anchor and Y position point
     right_edge_anchor = x + win_w
     bar_y = y
@@ -792,4 +813,4 @@ if __name__ == '__main__':
     # Run temperature warning flashing loop
     flash_loop()
     
-    root.mainloop()
+    main_root.mainloop()
