@@ -40,6 +40,8 @@ except Exception:
 
 UPDATE_MS = 2000  # update interval
 
+VERSION = "1.0"
+
 state = {
     'cpu_percent': 0.0,
     'ram_percent': 0.0,
