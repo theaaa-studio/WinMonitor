@@ -599,8 +599,6 @@ def update_loop():
         down_text = fmt_speed(down)
         
         img = make_gauge_icon(cpu)
-        if img and icon:
-            icon.icon = img
             
         tooltip = ""
         if state.get('show_cpu', True):
@@ -628,9 +626,7 @@ def update_loop():
         if not tooltip:
             tooltip = "WinMonitor"
             
-        if icon:
-            icon.title = tooltip[:127]
-            
+
 
         time.sleep(UPDATE_MS / 1000.0)
         
@@ -641,58 +637,11 @@ def update_loop():
             pass
 
 
-def run_tray():
-    global icon, root
-    try:
-        import pystray
-    except Exception:
-        return
-        
-    def on_exit(icon, item):
-        state['running'] = False
-        icon.stop()
-        if root:
-            root.after(0, root.quit)
 
-    icon = pystray.Icon('win-monitor')
-    icon.title = 'WinMonitor'
-    icon.menu = pystray.Menu(
-        pystray.MenuItem('Show Modules', pystray.Menu(
-            pystray.MenuItem('CPU', lambda item: toggle_module('cpu'), checked=lambda item: state['show_cpu']),
-            pystray.MenuItem('RAM', lambda item: toggle_module('ram'), checked=lambda item: state['show_ram']),
-            pystray.MenuItem('Disk', lambda item: toggle_module('disk'), checked=lambda item: state['show_disk']),
-            pystray.MenuItem('GPU', lambda item: toggle_module('gpu'), checked=lambda item: state['show_gpu']),
-            pystray.MenuItem('Network', lambda item: toggle_module('network'), checked=lambda item: state['show_network'])
-        )),
-        pystray.MenuItem('Collapsed Mode', toggle_collapsed_mode, checked=lambda item: state['collapsed_mode']),
-        pystray.MenuItem('Start with Windows', toggle_autorun_from_tray, checked=lambda item: is_autorun_enabled()),
-        pystray.MenuItem('Exit', on_exit)
-    )
-    
-    # Start updater thread
-    t = threading.Thread(target=update_loop, daemon=True)
-    t.start()
-    
-    # Initial icon
-    img = make_gauge_icon(0)
-    if img:
-        icon.icon = img
-            
-    try:
-        icon.visible = True
-    except Exception:
-        pass
-        
-    try:
-        icon.run()
-    except Exception:
-        pass
 
 
 def on_exit_from_gui():
     state['running'] = False
-    if icon:
-        icon.stop()
     root.quit()
 
 
@@ -803,9 +752,9 @@ if __name__ == '__main__':
         
     canvas.bind("<Button-3>", show_context_menu)
     
-    # Run tray icon in separate thread
-    tray_thread = threading.Thread(target=run_tray, daemon=True)
-    tray_thread.start()
+    # Start updater thread
+    update_thread = threading.Thread(target=update_loop, daemon=True)
+    update_thread.start()
     
     # Run GUI refresh loop
     refresh_bar_ui()
