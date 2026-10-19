@@ -49,7 +49,7 @@ except Exception:
 
 UPDATE_MS = 2000  # update interval
 
-VERSION = "1.1"
+VERSION = "1.2"
 
 state = {
     'cpu_percent': 0.0,
